@@ -255,7 +255,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     media: { path: string },
     message: string,
     isCarouselItem = false,
-    replyToId?: string
+    replyToId?: string,
+    topicTag?: string
   ): Promise<string> {
     const mediaType = hasExtension(media.path, 'mp4')
       ? 'video_url'
@@ -265,6 +266,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       ...(mediaType === 'image_url' ? { image_url: media.path } : {}),
       ...(isCarouselItem ? { is_carousel_item: 'true' } : {}),
       ...(replyToId ? { reply_to_id: replyToId } : {}),
+      // topic_tag only applies to the top-level container, not carousel children
+      ...(topicTag && !isCarouselItem ? { topic_tag: topicTag } : {}),
       media_type: mediaType === 'video_url' ? 'VIDEO' : 'IMAGE',
       text: message,
       access_token: accessToken,
@@ -287,7 +290,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     accessToken: string,
     media: { path: string }[],
     message: string,
-    replyToId?: string
+    replyToId?: string,
+    topicTag?: string
   ): Promise<string> {
     // Create each media item
     const mediaIds = [];
@@ -313,6 +317,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       media_type: 'CAROUSEL',
       children: mediaIds.join(','),
       ...(replyToId ? { reply_to_id: replyToId } : {}),
+      ...(topicTag ? { topic_tag: topicTag } : {}),
       access_token: accessToken,
     });
 
@@ -333,7 +338,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     accessToken: string,
     message: string,
     replyToId?: string,
-    quoteId?: string
+    quoteId?: string,
+    topicTag?: string
   ): Promise<string> {
     const form = new FormData();
     form.append('media_type', 'TEXT');
@@ -346,6 +352,10 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
 
     if (quoteId) {
       form.append('quote_post_id', quoteId);
+    }
+
+    if (topicTag) {
+      form.append('topic_tag', topicTag);
     }
 
     const { id: contentId, ...all } = await (
@@ -386,10 +396,11 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   private async createThreadContent(
     userId: string,
     accessToken: string,
-    postDetails: PostDetails,
+    postDetails: PostDetails<{ topic_tag?: string }>,
     replyToId?: string,
     quoteId?: string
   ): Promise<string> {
+    const topicTag = postDetails.settings?.topic_tag;
     // Handle content creation based on media type
     if (!postDetails.media || postDetails.media.length === 0) {
       // Text-only content
@@ -398,7 +409,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
         accessToken,
         postDetails.message,
         replyToId,
-        quoteId
+        quoteId,
+        topicTag
       );
     } else if (postDetails.media.length === 1) {
       // Single media content
@@ -408,7 +420,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
         postDetails.media[0],
         postDetails.message,
         false,
-        replyToId
+        replyToId,
+        topicTag
       );
     } else {
       // Carousel content
@@ -417,7 +430,8 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
         accessToken,
         postDetails.media,
         postDetails.message,
-        replyToId
+        replyToId,
+        topicTag
       );
     }
   }
@@ -447,6 +461,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     postDetails: PostDetails<{
       active_thread_finisher: boolean;
       thread_finisher: string;
+      topic_tag?: string;
     }>[],
     integration: Integration
   ): Promise<PostResponse[]> {
@@ -455,6 +470,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     }
 
     const [firstPost] = postDetails;
+    const topicTag = firstPost.settings?.topic_tag;
 
     // Carousels: only create the child containers here, the carousel container
     // itself is created by finalizePost once the children are processed.
@@ -482,6 +498,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
             step: 'children',
             childIds,
             message: firstPost.message,
+            topicTag,
           },
         },
       ];
@@ -491,13 +508,22 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     // threads_publish runs in finalizePost.
     const containerId =
       !firstPost.media || firstPost.media.length === 0
-        ? await this.createTextContent(userId, accessToken, firstPost.message)
+        ? await this.createTextContent(
+            userId,
+            accessToken,
+            firstPost.message,
+            undefined,
+            undefined,
+            topicTag
+          )
         : await this.createSingleMediaContent(
             userId,
             accessToken,
             firstPost.media[0],
             firstPost.message,
-            false
+            false,
+            undefined,
+            topicTag
           );
 
     return [
@@ -518,6 +544,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       childIds?: string[];
       containerId?: string;
       message?: string;
+      topicTag?: string;
     },
     integration: Integration
   ): Promise<PendingCheckResponse> {
@@ -563,6 +590,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       childIds?: string[];
       containerId?: string;
       message?: string;
+      topicTag?: string;
     },
     integration: Integration
   ): Promise<PendingCheckResponse> {
@@ -574,6 +602,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
         text: pendingData.message || '',
         media_type: 'CAROUSEL',
         children: (pendingData.childIds || []).join(','),
+        ...(pendingData.topicTag ? { topic_tag: pendingData.topicTag } : {}),
         access_token: accessToken,
       });
 
@@ -616,6 +645,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     postDetails: PostDetails<{
       active_thread_finisher: boolean;
       thread_finisher: string;
+      topic_tag?: string;
     }>[],
     integration: Integration
   ): Promise<PostResponse[]> {
