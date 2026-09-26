@@ -396,11 +396,11 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   private async createThreadContent(
     userId: string,
     accessToken: string,
-    postDetails: PostDetails<{ topic_tag?: string }>,
+    postDetails: PostDetails,
     replyToId?: string,
     quoteId?: string
   ): Promise<string> {
-    const topicTag = postDetails.settings?.topic_tag;
+    const topicTag: string | undefined = postDetails.settings?.topic_tag;
     // Handle content creation based on media type
     if (!postDetails.media || postDetails.media.length === 0) {
       // Text-only content
